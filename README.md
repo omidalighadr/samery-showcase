@@ -1,120 +1,81 @@
-# Samery
+# Samery Media
 
-### A personal Telegram assistant for media, research and everyday automation
+### Source-aware media workflows, delivered through Telegram.
 
-Samery combines original-quality music and video workflows with AI, research and document tools. It runs as a private Python application with an English interface, background jobs and persistent local storage.
+A focused Python application for Apple Music, YouTube, Instagram and SoundCloud. Built around media integrity, clear job status and recoverable delivery.
 
-> **Public showcase only.** This repository describes the product and its architecture. Application source code, account sessions, credentials, databases and media files are not published here.
+**Private beta** · **Private implementation** · **Public engineering showcase**
 
-## At a glance
+[Creator](https://github.com/omidalighadr) · [Telegram bot — restricted access](https://t.me/SameryMediaBot)
 
-| Area | What Samery does |
-| --- | --- |
-| Music | Lossless FLAC workflows, artwork, available lyrics and channel-ready metadata |
-| Video | Best-available YouTube video and audio, including 4K/8K when offered by the source |
-| Experience | English menus, confirmation cards, progress updates, cancellation and library navigation |
-| Research | Document Q&A, reference checking, PubMed evidence extraction and Zotero integration |
-| Content | Presentations, document generation, image tools and scheduled posts |
-| Operations | Background task ownership, SQLite persistence and a managed macOS service |
+## The product
 
-## Recent improvements
+Send a supported link. Samery Media validates the source, queues the request, processes the best accessible media and delivers the result with clean filenames, artwork and accurate metadata where available.
 
-### Original-quality music
+English menus, progress updates, cancellation, download history, favorites and cached resend keep the workflow inside Telegram. Oversized originals are retained for retry instead of silently reducing quality.
 
-Apple Music workflows select the best available lossless source and produce FLAC while preserving the source sample rate and bit depth. A compressed source is not presented as lossless simply because it has been converted to FLAC.
+## Provider capabilities
 
-Track delivery includes clean artist/title filenames, cover art and source metadata. Lyrics are embedded or delivered separately when the source provides them. Caption preferences let the user show or hide the artist, duration, release date, disc and track number, source ID, audio quality and channel signature.
-
-Music requests support preview cards, saved-library navigation and repeat delivery from cached Telegram files where available. New album downloads keep a separate library entry for each track.
-
-### Best-available YouTube video
-
-The video workflow selects the highest available resolution and the best audio stream, then merges them without re-encoding. It has no resolution or file-size preference that silently substitutes a smaller version. Source frame rate and HDR information are retained when available.
-
-- **4K and 8K support:** subject to the formats exposed for the video and the current connection/account.
-- **Original file delivery:** uploaded as a document with the actual resolution, frame rate and size.
-- **Background execution:** progress updates and cancellation without blocking other conversations.
-- **Clear size handling:** files above the configured Telegram upload limit remain intact on local storage; quality is not reduced automatically.
-
-The current setup uses the standard Telegram Bot API. A higher-capacity delivery transport is supported but requires separate configuration; it is not assumed to be active.
-
-### A cleaner Telegram experience
-
-The main keyboard has six destinations:
-
-| Apple Music | Search Music | My Library |
+| Provider | Implemented workflow | Integration status |
 | --- | --- | --- |
-| Downloads | Tools | Settings |
+| Apple Music | Lossless ALAC source to FLAC, PCM verification, cover art and available lyrics | Requires a subscribed account, valid session and running local wrapper; latest standalone-bot end-to-end acceptance remains pending |
+| YouTube | Best available source streams, including 4K when offered; stream-copy merging and compatible MP4 delivery | Live format discovery checked; media conversion and delivery logic covered offline |
+| Instagram | Video posts and reels, best accessible stream, native Telegram video delivery where compatible | Used in the private beta; access depends on the source and session |
+| SoundCloud | Tracks, playlists and supported Discover sets; original upload when accessible, otherwise best available full stream | Live track download and playlist resolution verified |
+| Spotify | Isolated lossless-only single-track adapter | Experimental; required account/device setup and live acceptance are pending |
 
-Existing research, document, video, content and learning tools remain accessible through the tools hub. A single editable status shows download stages instead of leaving a trail of progress messages. Confirmation and cancellation controls stay associated with the relevant request.
+## Apple Music: lossless integration
 
-## AI, research and documents
+Implemented an Apple Music lossless pipeline through **existing open-source decryption-wrapper tooling**, integrated with Gamdl. The engineering work covers orchestration, runtime readiness, failure handling, metadata, delivery and audio-integrity validation.
 
-- **Flexible LLM integration:** Gemini and OpenAI-compatible endpoints, with model fallback.
-- **Document workflows:** summaries, translation and questions grounded in supplied files.
-- **Reference checking:** citation/reference matching and CrossRef/DOI verification; an unverified lookup is reported as not found, rather than automatically labeled fake.
-- **Research support:** PubMed evidence extraction, reference exports and Zotero library integration.
-- **Presentations:** schema-validated plans rendered to PowerPoint with RTL layouts, native charts, tables, custom fonts and an image library.
-- **Everyday tools:** reminders, scheduled posts, image utilities and learning workflows.
+The pipeline accepts a lossless ALAC source, preserves its sample rate and bit depth, then verifies decoded PCM hashes before and after FLAC conversion. A lossy AAC stream is never converted and advertised as lossless.
+
+This work credits the upstream decryption implementation; it does not claim an independently discovered DRM vulnerability.
+
+## Quality is a property of the source
+
+- **Audio:** report the actual codec, sample rate and bit depth. SoundCloud output retains its real source format.
+- **Video:** choose the best available streams and remux without recompression where compatible. Resolution is limited by what the provider exposes.
+- **Presentation:** clean artist/title filenames, artwork, duration and available disc/track metadata.
+- **Persian subtitles:** an explicit button requests Gemini transcription/translation, a reusable SRT and a separately rendered subtitled MP4. This rendering re-encodes video; the original remains a separate artifact. Live translation acceptance after the latest fix is pending.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    USER[Authorized user] --> TG[Telegram interface]
-    TG --> CORE[Python / asyncio handlers]
-    CORE <--> DB[(SQLite: preferences and cache)]
-    CORE --> JOBS[Owned background jobs]
-    JOBS --> MEDIA[Music and video workflows]
-    JOBS --> AI[LLM and research integrations]
-    JOBS --> DOCS[Document and image builders]
-    MEDIA --> DELIVERY[Original-file delivery / local archive]
-    AI --> TG
-    DOCS --> TG
-    DELIVERY --> TG
+    A[Authorized Telegram user] --> B[URL validation and provider routing]
+    B --> C[Bounded asynchronous queue]
+    C --> D[Provider adapters]
+    D --> E[Isolated download workspace]
+    E --> F[FFmpeg processing and metadata]
+    F --> G[Telegram delivery]
+    G --> H[Full-size verification]
+    H --> I[SQLite history and cached file IDs]
+    H --> J[Configured retention policy]
 ```
 
-Long-running work is separated from update handling. Delivery respects the configured transport limit, while completed oversized files are retained for later access. The macOS service starts independently of an open Terminal window.
+Provider adapters stay separate from Telegram interaction. One worker processes a bounded FIFO queue, with per-user limits and cancellation that stops the owned subprocess group. SQLite persists job history and bot-specific Telegram file identifiers.
 
-## Technology
+Delivery checks the returned file size against the complete local artifact. The implemented retention policy removes eligible temporary files only after verified delivery and saved resend identifiers; owner files and failed deliveries are retained. Deployment of the latest retention policy is pending.
 
-| Layer | Stack |
-| --- | --- |
-| Application | Python, asyncio, python-telegram-bot |
-| Persistence | SQLite, cached file identifiers, per-user and per-chat preferences |
-| Media | yt-dlp, FFmpeg, embedded tags, artwork and lyrics |
-| APIs & research | httpx, Gemini, OpenAI-compatible APIs, CrossRef, PubMed, DOAJ, Zotero |
-| Documents & images | python-pptx, Pillow, structured generation plans and RTL layouts |
-| Reliability | Background job ownership, cancellation, timeouts, retries and controlled error messages |
-| Operations & checks | macOS launchd, pytest, Ruff, dependency and legacy-feature checks |
+## Validation
 
-## Validation and practical limits
+The private implementation passed **89 offline regression tests** in the latest local run, plus Ruff checks. Coverage includes access control, URL handling, queue lifecycle, cancellation, retention safeguards and delivery failures. Real FFmpeg fixtures check stream-copy behavior and subtitle rendering; network services and translation are mocked in those tests.
 
-The latest locally validated build, checked in **October 2026**, passed **199 regression tests** alongside dependency, lint, formatting and legacy-feature checks. These are application checks performed against the private implementation; this showcase does not claim to host its source or CI pipeline.
+Live checks include YouTube format discovery, a SoundCloud AAC/M4A download with embedded cover art and resolution of a 20-item personalized SoundCloud set. These checks are distinguished from complete provider-account and Telegram acceptance tests. This public repository contains documentation, not the private test suite or a public CI build.
 
-Video verification included a real **3840×2160, 60 fps** source with audio, checked with FFprobe. Format-selection tests also cover choosing an available 8K stream over smaller alternatives. This distinguishes live media verification from synthetic selector tests.
+## Stack and operation
 
-Availability depends on source access, account/session validity, network conditions and the formats actually exposed by the provider. Lyrics and artwork are shown when available. Telegram upload limits still apply, and a local macOS deployment requires the machine to be running and connected.
+**Python · asyncio · python-telegram-bot · httpx · SQLite · yt-dlp · FFmpeg / FFprobe · Mutagen · Pillow · pytest · Ruff**
 
-## Selected commands
+Runs as a macOS LaunchAgent independently of an open Terminal window. The host must remain awake and connected. Current storage is local; cloud storage is not active. Source access, account sessions and Telegram transport limits still apply.
 
-| Command | Purpose |
-| --- | --- |
-| `/start`, `/menu` | Open the main interface |
-| `/apple`, `/codec`, `/amlyrics` | Apple Music, source quality and lyric preferences |
-| `/video` | Download a YouTube video at the best available quality |
-| `/search`, `/sc`, `/yt` | Music discovery and source search |
-| `/playlist`, `/stems`, `/cut` | Collection, audio separation and trimming workflows |
-| `/deck`, `/make`, `/pdf`, `/scan` | Presentations, documents and PDF tools |
-| `/refs`, `/refcheck`, `/thesis`, `/zotero` | Reference and research workflows |
-| `/cancel` | Stop active work |
+Credentials, cookies, databases, downloaded media and application source stay outside this repository.
 
-Media workflows are intended for content the user is entitled to access.
+## Upstream foundations
 
-## Related work
+Samery Media integrates established open-source projects, including [yt-dlp](https://github.com/yt-dlp/yt-dlp), [FFmpeg](https://ffmpeg.org/), [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot), [Gamdl](https://github.com/glomatico/gamdl) and an existing Apple Music decryption wrapper. The experimental Spotify adapter integrates [Votify](https://github.com/glomatico/votify). These projects retain their respective authorship and licenses.
 
-**[persian-cover-engine](https://github.com/omidalighadr/persian-cover-engine)** — an open-source Python library for Persian cover images, RTL shaping, text fitting and contrast-checked layouts.
+---
 
-## Author
-
-Built and maintained by **[Omid Alighadr](https://github.com/omidalighadr)**.
+Built and maintained by [Omid Alighadr](https://github.com/omidalighadr).
